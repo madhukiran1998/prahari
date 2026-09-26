@@ -1,211 +1,347 @@
 # Prahari
 
-Camera intelligence for a jewellery shop. RTSP in, alerts out: a person at an
-unattended display counter, someone loitering by the door, movement after
-closing, or a camera that has quietly stopped working.
+Camera intelligence for a jewellery shop. It takes RTSP video in and sends
+alerts out, for four situations:
 
-This is a POC. It runs on one laptop, needs no cloud, and the only outbound
-connection is the WhatsApp alert.
+- a customer at a display counter with no staff behind it;
+- someone loitering by the door;
+- anyone moving about after closing;
+- a camera that has quietly stopped working.
 
-**Docs:** this README covers running and demoing it.
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the developer guide: the
-processes, how the rules work, the API, and how to add a rule.
-[docs/STATUS.md](docs/STATUS.md) covers what's built, known issues and next
-steps.
+Prahari is a **proof of concept** (POC). It runs on one laptop and needs no
+cloud. The only outbound connection is the optional WhatsApp alert.
+
+| Doc | For |
+|---|---|
+| **This README** | Developer guide: setup, architecture, code map, how to extend it |
+| [docs/STATUS.md](docs/STATUS.md) | What's built, known issues, next steps. **Read this second.** |
+| [docs/DEMO.md](docs/DEMO.md) | Step-by-step script for showing it to a client |
+
+**Contents:**
+[Quick start](#quick-start) ·
+[How it works](#how-it-works) ·
+[Code map](#code-map) ·
+[The rules](#the-rules) ·
+[Configuration](#configuration) ·
+[Storage](#storage) ·
+[HTTP API](#http-api) ·
+[Common tasks](#common-tasks) ·
+[Tests and tools](#tests-and-tools) ·
+[Known limits](#known-limits) ·
+[Troubleshooting](#troubleshooting)
 
 ---
 
-## Run it
+## Quick start
 
-Three commands, three terminals.
+### 1. One-time setup
+
+You need Python 3.11+ and `ffmpeg` (`brew install ffmpeg`).
 
 ```bash
-pip install -e '.[dev]'     # first time only; Python 3.11+ (dev adds pytest)
-./sim/run_fake_cams.sh      # 5 simulated cameras on rtsp://localhost:8554/camN
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'                                         # app + pytest
+
+python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"    # ~6 MB model weights
+./sim/download_media.sh                                         # demo footage
+python sim/make_staged_clip.py                                  # the counter scene (cam3)
+```
+
+Also download the `mediamtx` binary (a small RTSP server) for your OS from
+[github.com/bluenviron/mediamtx/releases](https://github.com/bluenviron/mediamtx/releases).
+Put the extracted `mediamtx` file in `sim/`, next to `sim/mediamtx.yml`.
+
+None of the weights, footage, the binary or runtime data are in git. They are
+large and can be regenerated with the commands above.
+
+### 2. Run it
+
+Use three terminals:
+
+```bash
+./sim/run_fake_cams.sh      # 5 simulated cameras on rtsp://localhost:8554/cam1..cam5
 python -m prahari.main      # detector, rules and dashboard
+python tools/smoke_test.py  # optional: end-to-end check, prints pass/fail per part
 ```
 
-Then open **http://localhost:8008**.
+Open **http://localhost:8008**. The dashboard opens on the **owner view**
+(KPIs); **Security view** in the header shows the live cameras and the alert
+log.
 
-Before showing anyone, check the whole thing actually works:
+### 3. Check the code without cameras
 
 ```bash
-python tools/smoke_test.py
+pytest                      # 102 tests, a few seconds; no camera, model or network
 ```
-
-It walks the real system over HTTP and prints a pass/fail line per piece —
-streams, frames, detector speed, zones, and a live counter alert with its
-snapshot and clip.
-
-### First-time setup
-
-`pip install -e .` pulls in ultralytics, opencv, fastapi and friends. Two things
-are fetched on demand and worth doing before you travel:
-
-```bash
-python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"   # ~6 MB of weights
-./sim/download_media.sh                                        # demo footage
-python sim/make_staged_clip.py                                 # the counter scenario
-```
-
-You also need `ffmpeg` (`brew install ffmpeg`) and the `mediamtx` binary in
-`sim/` — download the darwin/linux build from
-[github.com/bluenviron/mediamtx/releases](https://github.com/bluenviron/mediamtx/releases)
-and drop the extracted `mediamtx` next to `sim/mediamtx.yml`.
 
 ---
 
-## Demo script
+## How it works
 
-0. **Open on the owner view.** The dashboard starts on the numbers an owner
-   cares about - customers today, how many are in the shop, how long people
-   wait before they are served, and how many walked out without being served
-   at all - plus a strip reporting the system's own uptime, speed and counting
-   drift. **Security view** in the header switches to the live console below.
-   The choice is remembered per browser.
-1. **Everything is watching.** Press Security view. Five cameras, live boxes and
-   track numbers, zone overlays burned into the picture. The sentence across
-   the top says what the system thinks is happening right now.
-2. **The counter alert.** On *Display counter*, a customer is at the case with a
-   staff member behind it. The staff member steps away; twenty seconds later the
-   tile turns red and a CRITICAL lands in the log with a snapshot and a 15-second
-   clip. (This camera is staged so the scenario repeats — say so.)
-3. **Loitering.** *Entrance* raises a WARNING when someone stays in the doorway
-   zone past the threshold, and escalates if they stay twice as long.
-4. **After hours.** Set `demo_force_closed: true` in `config/settings.yaml`, or
-   start with `python -m prahari.main --force-closed`. Every person on any camera
-   is now a CRITICAL.
-5. **A camera dies.** `./tools/cam_ctl.sh down cam4` — within 15 seconds the tile
-   greys out and a camera-offline warning appears. `./tools/cam_ctl.sh up cam4`
-   brings it back. This is the alert nobody else demos, and it is the one that
-   matters: a dead camera looks exactly like a quiet shop.
-6. **Draw a zone live.** Press **Zones** on any tile, click a polygon on the
-   picture, pick what it is, save. It takes effect immediately — no restart. Do
-   this on the client's own footage in the meeting.
-7. **WhatsApp.** With `whatsapp.enabled: true`, CRITICAL alerts also arrive on
-   the owner's phone with the snapshot attached.
+### The big picture
 
-### WhatsApp on the day
+```
+ CAMERAS                PROCESSES                                        OUTPUTS
+ ───────                ─────────                                        ───────
+ cam1 ─RTSP─> [ingest:cam1] ─┐
+ cam2 ─RTSP─> [ingest:cam2] ─┤  frame_q               bus_q
+  ...                        ├─────────> [inference] ─────────> [main process]
+ camN ─RTSP─> [ingest:camN] ─┘  JPEG frames      people boxes     │
+                   ^            (5 fps each)     + track IDs      ├─ rules engine ──> alerts
+                   │                             + overlay image  ├─ SQLite (data/prahari.db)
+                   │                                              ├─ dashboard + WebSocket
+                   └──────── cmd_q: "record a clip", "slow down" ─┤─ WhatsApp
+                                                                  └─ supervisor (restarts dead workers)
+```
 
-Free-form image messages only reach a phone inside a 24-hour window that the
-recipient opens by messaging your number first. Have the owner send "hi" to the
-test number as the meeting starts and every alert that follows is free. Cold
-alerts outside that window need an approved message template — that is a pilot
-task, not a POC one.
+There are three kinds of process:
+
+1. **Ingest, one per camera** (`prahari/ingest.py`). Opens the RTSP stream
+   (over TCP), reconnects with backoff if it drops, and keeps 5 frames per
+   second, shrunk to 640 px wide. It holds the last 5 seconds in memory so an
+   alert clip can include what happened *before* the alert.
+2. **Inference, one in total** (`prahari/inference.py`). Runs YOLO11n
+   person detection plus OC-SORT tracking, which gives each person a stable
+   track ID across frames. It uses one model instance per camera, because the
+   tracker keeps its state on the model, and sharing one would mix IDs between
+   cameras. It also samples each person's shirt colour and draws the boxes and
+   zones onto the picture.
+3. **Main process** (`prahari/main.py`). A background thread feeds every
+   frame's detections to the **rules engine**. Uvicorn serves the **dashboard
+   and API**. A supervisor thread restarts any worker that dies.
+
+**Why separate processes?** So one hung camera can never stall the others, and
+a crash in one worker takes down nothing else.
+
+**Why do frames get dropped?** If the detector falls behind, the oldest frame
+in the queue is thrown away (`ingest._put_latest`). An alert based on a frame
+from ten seconds ago is worse than no alert. If inference is slow for long
+enough, every camera is also told to drop from 5 to 3 fps.
+
+### Life of one alert, step by step
+
+Here is the headline "unattended counter" alert, followed through the code:
+
+1. `ingest:cam3` reads a frame, resizes it, and puts a JPEG on `frame_q`. It
+   also adds the frame to its 5-second ring buffer.
+2. `inference` decodes it, and `model.track()` finds two people with track IDs
+   7 and 9. It samples each person's torso colour, draws the overlay, and puts
+   a `det` message on `bus_q`.
+3. The main process's `bus_loop` turns the message into a `FrameCtx` holding a
+   list of `Detection`s (`prahari/types.py`) and calls
+   `RulesEngine.handle_frame`.
+4. The engine first runs `StaffTracker` (`prahari/staff.py`), which marks each
+   detection as staff or not, based on shirt colours it has learned.
+5. Each rule enabled for cam3 runs. `ZoneBreachRule` sees someone in
+   `counter_customer` and nobody in `counter_staff`, and starts a timer. On a
+   later frame, 20 s on, it returns an `Event(kind="start", severity="CRITICAL")`.
+6. `RulesEngine._admit` checks two things. **Dedup:** is this alert already
+   open? **Cooldown:** did the same rule's last alert on this camera clear
+   less than 120 s ago? If neither, the event is let through.
+7. `Hub.handle_event` (`prahari/api.py`) then:
+   - saves the event to SQLite;
+   - writes a snapshot JPEG;
+   - pushes the event to every open dashboard over the WebSocket;
+   - sends it to WhatsApp, because it is CRITICAL;
+   - puts a `clip` command on cam3's `cmd_q`.
+8. `ingest:cam3` records 10 more seconds after the ring buffer's 5, encodes an
+   MP4, and sends `clip_ready`. The event row is updated and the dashboard shows
+   the clip.
+9. When staff return, the rule emits `kind="resolved"` and the alert closes.
+
+### Messages between processes
+
+| On queue | `type` | From → to | Meaning |
+|---|---|---|---|
+| `frame_q` | `frame` | ingest → inference | One JPEG frame plus brightness and a hash of the frame |
+| `bus_q` | `det` | inference → main | Detections plus annotated JPEG for one frame |
+| `bus_q` | `cam_status` | ingest → main | Stream went online or offline |
+| `bus_q` | `clip_ready` | ingest → main | An event clip finished encoding |
+| `bus_q` | `perf_degrade` | inference → main | Inference is too slow; lower the fps |
+| `cmd_q` (per camera) | `clip`, `set_fps` | main → ingest | Record a clip; change the frame rate |
+| `infer_cmd_q` | `zones` | main → inference | Zones were redrawn; update the overlay |
+
+---
+
+## Code map
+
+```
+prahari/
+  main.py            Entry point. Starts processes, bus loop, supervisor, web server.
+  ingest.py          Per-camera RTSP reader, frame pacing, ring buffer, clip recording.
+  inference.py       YOLO + tracker, torso-colour sampling, overlay drawing.
+  api.py             FastAPI app + Hub (in-memory live state, event fan-out).
+  types.py           The data model: Detection, FrameCtx, Event, CamStatus.
+  config.py          Loads settings.yaml, cameras.yaml, zones.local.yaml.
+  geometry.py        Point-in-polygon, line crossing, IoU. Pure functions.
+  staff.py           Learns staff uniforms by shirt colour.
+  store.py           SQLite event log (WAL mode + FTS5 text search), KPIs.
+  clips.py           Encodes buffered JPEGs to H.264 MP4.
+  notify.py          WhatsApp via Meta Cloud API; logs to console when disabled.
+  rules/
+    base.py          The Rule interface every rule implements.
+    engine.py        Runs rules per camera; dedup and cooldown; rule registry.
+    zone_breach.py   Unattended counter.
+    service.py       Walk-aways and time-to-greet.
+    restricted.py    No-go and staff-only zones.
+    loitering.py     Dwell time at the entrance.
+    footfall.py      Line-crossing counter.
+    after_hours.py   Anyone present while the store is closed.
+    camera_health.py Offline, frozen or blacked-out camera.
+web/index.html       The whole dashboard: one file, plain JS, no build step.
+config/              settings.yaml, cameras.yaml (+ zones.local.yaml, not in git).
+sim/                 Fake camera rig: MediaMTX + looping ffmpeg, footage scripts.
+tools/               Smoke test, offline replay, footage scoring, camera control.
+tests/               pytest suite. Shared fixtures are in conftest.py.
+```
+
+---
+
+## The rules
+
+### Four ideas to know first
+
+1. **Rules are pure.** A rule takes dataclasses in and returns `Event`s. It does
+   no database, network or file work. That is why the tests can drive whole
+   incidents in a few lines, with no camera.
+2. **Rules report edges, not levels.** A rule emits one `start` when a
+   condition begins and one `resolved` when it ends, not an alert on every
+   frame. Events marked `transient=True` (a footfall crossing, say) are one-off
+   moments and are never resolved.
+3. **A person's position is their feet.** Someone is "in" a zone when the
+   bottom-centre of their box is inside the polygon (`geometry.bbox_anchor`).
+   Using the centre of the box would put tall people in the wrong zone.
+4. **The engine, not the rule, stops alert storms.** *Dedup* allows one open
+   alert per condition. *Cooldown* keeps a rule quiet on a camera for
+   `cooldown_s` after the condition clears. When a camera goes offline, every
+   rule except `camera_health` is reset, so no alert stays stuck.
+
+Every rule implements up to four hooks from `rules/base.py`:
+
+| Hook | Called when |
+|---|---|
+| `on_frame(ctx)` | A frame has been processed |
+| `on_tick(ts)` | About once a second, whether frames arrive or not |
+| `on_status(status)` | A camera stream went up or down |
+| `reset(ts)` | The stream was lost |
+
+### The rules and what they need
+
+| Rule | Fires when | Severity | Zones it reads | Uses staff labels |
+|---|---|---|---|---|
+| `zone_breach` | A customer is at the counter and nobody has been behind it for `zone_breach_grace_s` (20 s) | CRITICAL | `counter_customer`, `counter_staff` | No, position only |
+| `service` | A customer waited at the counter and left unserved; also records time-to-greet | WARNING / INFO | `counter_customer`, `counter_staff` | Yes |
+| `restricted` | Anyone in `restricted`, or a customer in `staff_only` | CRITICAL | `restricted`, `staff_only` | Yes |
+| `loitering` | One person's total time in the zone passes `loiter_warn_s`, then `loiter_crit_s` | WARNING → CRITICAL | `entrance` | No |
+| `footfall` | A tracked person crosses the counting line | INFO | `entry_line` (2 points) | No |
+| `after_hours` | Anyone at all while the store is closed | CRITICAL | none | No |
+| `camera_health` | Stream offline, feed frozen, or view blacked out while the shop is open | WARNING | none | No |
+
+A camera without the zone a rule needs simply stays quiet, so it's safe to
+enable a rule before its zone is drawn. Drawing a zone in the dashboard turns on
+the rules that read it (`ZONE_RULES` in `rules/engine.py`).
+
+### Staff vs customers
+
+No off-the-shelf detector knows a staff uniform, and training one would need
+the client's own staff. So `prahari/staff.py` learns them instead. Anyone who
+stands in `counter_staff` for `staff_learn_s` (6 s) is taken to be staff, and
+their shirt colour is remembered. From then on, anyone with that colour
+anywhere in the frame is labelled `is_staff`. Learning is per camera and needs
+no enrolment. Learned colours survive a stream drop.
+
+Until a camera has learned at least one uniform, `staff_only` stays silent.
+Otherwise it would flag the shop's own staff.
+
+> The counter alert is **not** detection of a display case being opened. That
+> needs a sensor on the case. It detects a customer at the counter with no staff
+> present, which is the situation that comes before a loss.
 
 ---
 
 ## Configuration
 
-Everything tunable lives in two files. There are no thresholds in the Python.
+Everything tunable lives in config files. **There are no thresholds in the
+Python.** If you find a magic number in code, treat it as a bug and move it to
+`settings.yaml`.
 
-**`config/settings.yaml`** — detector settings, alert thresholds, cooldowns,
-store hours, clip lengths, WhatsApp credentials, the port.
-
-**`config/cameras.yaml`** — one entry per camera: its RTSP URL, which rules run
-on it, and the zones drawn on it. Zones are pixel coordinates in the 640×360
-frame the detector sees.
-
-Zones saved from the dashboard are written to `config/zones.local.yaml` rather
-than back over `cameras.yaml`, so the documented defaults stay readable. Delete
-that file to go back to them.
-
-### The rules
-
-| Rule | Fires when | Needs |
+| File | In git | Contains |
 |---|---|---|
-| `zone_breach` | Somebody is at the counter and nobody is behind it for `zone_breach_grace_s` | `counter_customer`, `counter_staff` |
-| `service` | A customer waited at the counter and left with nobody having served them | `counter_customer`, `counter_staff` |
-| `restricted` | Anybody in `restricted`, or a customer in `staff_only` | `restricted` and/or `staff_only` |
-| `loitering` | One person's cumulative dwell in a zone passes `loiter_warn_s`, then `loiter_crit_s` | `entrance` |
-| `after_hours` | Any person while the store is closed | — |
-| `camera_health` | Stream offline, frozen, or blacked out | — |
-| `footfall` | A tracked person crosses the counting line | `entry_line` |
+| `config/settings.yaml` | yes | Model, tracker, confidence, fps, every threshold and cooldown, store hours, clip lengths, WhatsApp, port. Each setting is commented with *why* it has its value. |
+| `config/cameras.yaml` | yes | One entry per camera: RTSP URL, enabled rules, default zones. |
+| `config/zones.local.yaml` | no | Zones drawn in the dashboard. Overrides `cameras.yaml` per camera; delete it to reset. |
 
+Zones are lists of `[x, y]` pixel coordinates in the **640×360** frame the
+detector sees. A 2-point zone is a line (`entry_line`); anything else is a
+polygon. Saving zones in the dashboard updates the running rules straight
+away, with no restart.
 
-A camera without the zone a rule needs simply stays quiet, so it is safe to
-enable a rule before you have drawn its zone.
-
-### Staff and customers
-
-Nothing detects a uniform out of the box, and training one needs the client's
-own staff. So `prahari/staff.py` learns instead: stand inside `counter_staff`
-for `staff_learn_s` and your shirt colour is remembered, after which the same
-colour reads as staff anywhere in the frame - including in front of the
-counter, where position alone would call you a customer.
-
-It is per camera, it needs no enrolment step, and it survives a stream drop
-(track ids restart; the uniform does not). Until a camera has learned at least
-one uniform, `staff_only` stays silent rather than accusing the shop's own
-staff - which is the alert you least want as the opening line of a demo.
-
-**On `zone_breach`, be straight with the client.** This is not open-case
-detection. Knowing a display case has been opened needs a sensor on the case or
-a model trained on that gesture. What this detects is a customer at the counter
-with no staff present, which is the situation that actually precedes a loss.
+**Secrets:** `whatsapp.token` sits in `settings.yaml`, which is committed. Keep
+it empty in git; set it only on the machine running the demo.
 
 ---
 
-## How it fits together
+## Storage
 
-```
-[5 ffmpeg loops] ─> MediaMTX ─> rtsp://localhost:8554/camN
-                                     │
-                    ingest worker per camera (own process)
-                    reads RTSP, paces to 5 fps, keeps a 15 s clip buffer
-                                     │ frames
-                    inference (one process, one YOLO per camera)
-                    person detection + OC-SORT track IDs, draws the overlay
-                                     │ detections
-                    rules engine (thread in the main process)
-                    zone membership, dwell timers, cooldowns, dedup
-                                     │ events
-              SQLite  ·  clip writer  ·  WhatsApp  ·  WebSocket ─> dashboard
-```
+Everything is written under `data/`, which is not in git:
 
-Each camera is its own process, so one dead stream cannot stall another, and the
-supervisor restarts any worker that dies. The rules are pure — dataclasses in,
-events out, no I/O — which is why `tests/test_rules.py` can drive a whole
-incident in a few lines.
+| Path | What |
+|---|---|
+| `data/prahari.db` | SQLite (WAL mode). One `events` table plus an FTS5 index for text search. Footfall and time-to-greet are stored as INFO events, so KPIs are SQL queries and survive restarts. |
+| `data/snapshots/<event_id>.jpg` | Annotated frame at the moment of the alert (CRITICAL alerts only) |
+| `data/clips/<event_id>.mp4` | 5 s before + 10 s after the alert, at 5 fps (CRITICAL alerts only) |
+
+There is no retention policy yet, so `data/` keeps growing.
 
 ---
 
-## Tools
+## HTTP API
+
+Served by `prahari/api.py` on port 8008. There is no authentication.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | The dashboard |
+| GET | `/api/cams` | Every camera: online, zones, people now, per-zone counts, fps |
+| POST | `/api/cams/{id}/zones` | Replace a camera's zones. Body: `{"zones": {"name": [[x,y], ...]}}` |
+| GET | `/api/cams/{id}/frame.jpg` | Latest annotated frame |
+| GET | `/api/cams/{id}/stream.mjpg` | Live annotated video (MJPEG) |
+| GET | `/api/events` | Alerts, newest first. Filters: `since`, `rule`, `cam_id`, `severity`, `kind`, `q` (text search), `limit` (≤ 500), `include_info` |
+| POST | `/api/events/{id}/ack` | Acknowledge an alert |
+| GET | `/api/kpis` | Owner-view numbers |
+| GET | `/clips/{id}.mp4`, `/snapshots/{id}.jpg` | Evidence for an event |
+| WS | `/ws` | Live push. Message types: `kpi`, `cams`, `live`, `cam_status`, `event`, `clip`, `ack` |
+
+---
+
+## Common tasks
+
+### Add a new rule
+
+1. Create `prahari/rules/<name>.py` with a subclass of `Rule`. Set `name` and
+   implement the hooks you need. Read thresholds with
+   `self.settings.threshold("my_threshold")` and add them to `settings.yaml`.
+   `zone_breach.py` is the simplest example to copy.
+2. Register the class in `RULES` in `prahari/rules/engine.py`. If it reads a
+   zone, add it to `ZONE_RULES` as well.
+3. Enable it on a camera in `config/cameras.yaml`: `rules: [..., <name>]`.
+4. Write tests in the style of `tests/test_rules.py`: build `FrameCtx`
+   objects with fake `Detection`s, step time forward, and assert on the events.
+
+### Tune zones or rules on new footage
 
 ```bash
-python tools/score_footage.py clip.mp4      # will the rules work on this footage?
-python tools/lock_camera.py in.mp4 out.mp4  # turn a hand-held clip into a fixed one
-python tools/replay.py cam3 --loops 3       # run a clip through the real rules, offline
-python tools/replay.py cam1 --preview z.jpg # dump a frame with the zones drawn on it
-python tools/smoke_test.py                  # pre-meeting end-to-end check
-./tools/cam_ctl.sh down cam4                # take a camera offline on purpose
-./tools/cam_ctl.sh list                     # what the rig is publishing
-pytest                                      # 102 tests, a few seconds
+python tools/score_footage.py clip.mp4          # is this footage usable at all?
+python tools/replay.py cam3 --preview z.jpg     # see the zones drawn on a frame
+python tools/replay.py cam3 --loops 3           # every event the clip would produce
 ```
 
-`score_footage.py` answers "will this camera work" before you spend an evening
-drawing zones on footage that cannot support them. It reports camera movement
-measured on the background with the people masked out, how much of the frame a
-person fills, and how long a track survives - and rejects the clip if any of
-those is out of range. Point it at a client's exported footage and you can tell
-them in a minute whether their cameras are usable.
+`replay.py` runs the real detector and rules offline. It also reports how often
+each zone was occupied, so "why did nothing fire?" has an answer.
 
-Free stock retail footage almost never is: of eleven candidates pulled from
-Pexels, **eleven were rejected on camera movement alone**. That is why `cam3` is
-staged rather than filmed. `lock_camera.py` rescues some of them - it finds the
-window where the operator held stillest and translates every frame back onto the
-first, which took the current `cam4` clip from 4.7 px/s to 0.8. It corrects
-translation only, and says so rather than half-fixing a clip that pans or zooms.
+### Connect real cameras
 
-`replay.py` is how you tune zones on new footage: it reports every event a clip
-would have produced plus how often each zone was occupied, so "why did nothing
-fire?" has an answer.
-
----
-
-## Using real cameras
-
-Point `url` at the NVR channel and delete the simulated entries:
+Point `url` at the NVR channel and disable or delete the simulated entries:
 
 ```yaml
 - id: counter
@@ -215,40 +351,61 @@ Point `url` at the NVR channel and delete the simulated entries:
   zones: {}          # draw them in the dashboard
 ```
 
-Use the **sub-stream** (channel `x02`), not the main stream: it is already about
-640×360, which is what the detector wants, and it leaves the main stream free for
-the NVR's own recording.
+Use the **sub-stream** (channel `x02`). It's already about 640×360, which
+matches what the detector wants, and it leaves the main stream free for the
+NVR's own recording.
 
-A phone works too — run IP Webcam or Larix, publish to
-`rtsp://<laptop-ip>:8554/phone`, and set `enabled: true` on the `phone` camera.
-That is the most convincing demo available: draw a counter zone on the room you
-are standing in and walk into it.
+### Change the model or tracker
+
+Set `model`, `tracker`, `conf_threshold` and `imgsz` in `settings.yaml`. The
+comments there record what was measured: which models were compared, and why
+confidence is 0.3. Re-check with `replay.py` after changing any of them.
+
+---
+
+## Tests and tools
+
+| Command | What it does |
+|---|---|
+| `pytest` | Tests rules, geometry, staff tracker, store, clips and API. No camera needed. |
+| `python tools/smoke_test.py` | Checks the **running** system end to end over HTTP |
+| `python tools/replay.py <cam>` | Runs a clip through the real rules offline |
+| `python tools/score_footage.py clip.mp4` | Measures camera movement, person size and track survival; rejects footage that won't work |
+| `python tools/lock_camera.py in.mp4 out.mp4` | Stabilises a hand-held clip (translation only) |
+| `./tools/cam_ctl.sh down cam4` / `up cam4` / `list` | Take a simulated camera offline or back online |
+
+About the demo footage: free stock retail video is almost never usable. Of
+eleven clips from Pexels, all eleven were rejected for camera movement alone.
+So `cam3` (the counter) is **staged**: a CC0 photo of an empty showroom with
+real person cut-outs composited in (see `sim/make_staged_clip.py`). The other
+four cameras are unedited stock footage, with `cam4` stabilised by
+`lock_camera.py`.
 
 ---
 
 ## Known limits
 
-- **People only.** No face recognition, no bag or object tracking, no
-  distinguishing staff from customers except by which zone they stand in.
-- **Fixed cameras only.** Every zone rule assumes the camera does not move.
-- **Staged counter camera.** `cam3` is composited: a CC0 photo of an empty
-  showroom with real person cut-outs, because no free fixed-camera counter
-  footage exists where staff are reliably detected. The other four cameras are
-  untouched stock footage. See the comment at the top of `sim/make_staged_clip.py`.
-- **The tracker loses people.** OC-SORT (like ByteTrack before it) drops IDs
-  under occlusion. The loitering rule re-attaches a new track ID to a
-  recent one by box overlap, which handles brief occlusion but not somebody
-  leaving and returning a minute later.
-- **One machine, no auth.** Anyone on the network can open the dashboard. Fine
-  for a POC on a laptop; not fine in a shop.
-- **SQLite, no retention policy.** Clips accumulate in `data/clips/` forever.
+- **People only.** No faces, bags or objects, and no detection of a display
+  case being opened.
+- **Fixed cameras only.** Every zone assumes the camera doesn't move.
+- **The tracker loses people** during long occlusions. `loitering`
+  re-attaches a new track ID to a recent one by box overlap, but someone who
+  leaves and comes back a minute later counts as a new person.
+- **No authentication**, and the server listens on all network interfaces.
+  Fine on a demo laptop; not fine in a shop.
+- **No retention.** Clips and snapshots pile up in `data/`.
+- **Clips are 5 fps**, the detection rate.
 
-## If something breaks
+Open bugs and the plan for fixing them are in [docs/STATUS.md](docs/STATUS.md).
 
-| Symptom | Cause |
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
 |---|---|
-| `Address already in use` on start | Something else has the port. Change `server.port` in `settings.yaml`. |
-| Cameras show "offline" | The rig is not running, or `ffmpeg`/`mediamtx` is missing. `./tools/cam_ctl.sh list`. |
-| Detector speed warning | It drops to 3 fps by itself. Check the startup log says `on mps` (or `cuda`) rather than `on cpu` - `device: auto` should find the GPU. To go further, set `imgsz: 480` in `settings.yaml`. |
-| No counter alert | Check `cam3` has both counter zones: `python tools/replay.py cam3`. Remember the 120 s cooldown between incidents. |
-| Nothing local can connect, `Can't assign requested address` | Ephemeral ports exhausted by something else on the machine; `netstat -an \| grep -c TIME_WAIT`. |
+| `Address already in use` on start | Another program has the port. Change `server.port` in `settings.yaml`. |
+| Cameras show "offline" | The camera rig isn't running, or `ffmpeg`/`mediamtx` is missing. Run `./tools/cam_ctl.sh list`. |
+| Detector speed warning | It drops to 3 fps by itself. Check that the startup log says `on mps` or `on cuda`, not `on cpu`. For more speed, set `imgsz: 480`. |
+| No counter alert | Check cam3 has both counter zones: `python tools/replay.py cam3`. There is a 120 s cooldown between incidents. |
+| `Can't assign requested address` for local connections | Something else on the machine has used up the ephemeral ports. Check with `netstat -an \| grep -c TIME_WAIT`. |
