@@ -1,0 +1,90 @@
+# Cameras and the zones drawn on them. Coordinates are pixels in the 640x360
+# frame the detector sees (img_width in settings.yaml).
+#
+# Zone names are meaningful, not labels - each rule looks for the ones it needs:
+#   zone_breach -> counter_customer + counter_staff
+#   service     -> counter_customer + counter_staff
+#   loitering   -> entrance
+#   footfall    -> entry_line (two points, a counting line rather than an area)
+#   restricted  -> restricted (nobody allowed) and/or staff_only (customers barred)
+# A camera without the zone a rule needs simply stays quiet.
+#
+# You do not have to hand-edit this file: open the dashboard, press "Zones" on a
+# camera tile, click a polygon, and save. That writes to config/zones.local.yaml
+# (which overrides the zones below, per camera) and the running system picks it
+# up without a restart. Delete that file to go back to these defaults.
+
+cameras:
+  - id: cam1
+    name: Entrance
+    url: rtsp://localhost:8554/cam1
+    rules: [loitering, footfall, after_hours, camera_health]
+    zones:
+      entrance: [[232, 190], [470, 190], [470, 330], [232, 330]]
+      # Point order sets which way is "in": crossing to the LEFT of the arrow
+      # p1->p2 counts as an entry. Flip the two points if your footfall runs
+      # negative after installing on a real door.
+      entry_line: [[468, 236], [240, 236]]
+
+  - id: cam2
+    name: Shop front
+    url: rtsp://localhost:8554/cam2
+    rules: [loitering, after_hours, camera_health]
+    zones:
+      # The cluster in front of the lit display window, where people stop to look.
+      entrance: [[110, 225], [360, 225], [360, 358], [110, 358]]
+
+  - id: cam3
+    name: Display counter
+    url: rtsp://localhost:8554/cam3
+    rules: [zone_breach, service, restricted, after_hours, camera_health]
+    zones:
+      # The two sides of the counter are separated left/right, not by a
+      # horizontal band. How far down a person's box reaches depends on how much
+      # of them the counter hides, so the bottom edge wanders by tens of pixels
+      # and thin stacked bands let someone fall into the gap between them - at
+      # which point they count as neither and silently reset the grace timer.
+      # Where someone stands along the counter is stable, so split on that.
+      counter_customer: [[336, 150], [624, 150], [624, 336], [336, 336]]
+      # Tight on purpose. A display bust on the back wall reads as a person to
+      # the detector at confidence 0.40-0.44 - just over the threshold - and it
+      # sits at (219,182). Left inside this zone it flickers on and off and
+      # resets the grace timer every few seconds, so the alert never fires.
+      # The staff position is (250,151), so the left edge excludes the bust.
+      # Expect to redraw this on the client's own camera anyway.
+      counter_staff: [[232, 104], [336, 104], [336, 196], [232, 196]]
+      # Behind the counter: staff belong here, a customer does not. Same
+      # polygon as counter_staff on purpose - one describes who is expected,
+      # the other who is not allowed, and on this camera they coincide.
+      staff_only: [[232, 104], [336, 104], [336, 196], [232, 196]]
+
+  - id: cam4
+    name: Shop floor
+    url: rtsp://localhost:8554/cam4
+    rules: [loitering, footfall, after_hours, camera_health]
+    zones:
+      # Picked by measurement, not by eye: tools/score_footage.py rates this
+      # clip 0.8 px/s of camera movement with people filling 28% of the frame,
+      # against 1.0 px/s and 15% for the original stock clip here. Bodies twice
+      # the size roughly halves the track churn, which is what dwell rules live
+      # or die on. The source was hand-held and was locked off with
+      # tools/lock_camera.py first.
+      entrance: [[60, 190], [590, 190], [590, 355], [60, 355]]
+      entry_line: [[590, 250], [60, 250]]
+
+  - id: cam5
+    name: Upper concourse
+    url: rtsp://localhost:8554/cam5
+    rules: [after_hours, camera_health]
+    zones: {}
+
+  # A phone running IP Webcam / Larix, publishing to the same MediaMTX.
+  # Set enabled: true and draw zones in the dashboard at the meeting.
+  - id: phone
+    name: Live phone cam
+    url: rtsp://localhost:8554/phone
+    enabled: false
+    # Every rule armed, no zones drawn - so each one arms itself the moment you
+    # draw its zone in the dashboard, live, in the meeting.
+    rules: [zone_breach, service, restricted, loitering, footfall, after_hours, camera_health]
+    zones: {}

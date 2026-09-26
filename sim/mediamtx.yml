@@ -1,0 +1,70 @@
+# Fake-camera hub for the Prahari POC.
+#
+# MediaMTX itself launches one looping ffmpeg per path (runOnInit), so the whole
+# rig is this file plus the .mp4 files in ./media - no background-job script to
+# babysit. Run mediamtx from THIS directory so ./media resolves.
+#
+# The `while [ -f .down/$MTX_PATH ]` guard lets tools/cam_ctl.sh take a single
+# camera offline on demand (for the camera-health part of the demo) without
+# killing the whole rig: runOnInitRestart keeps respawning the wrapper, and the
+# wrapper waits until the flag file is removed.
+#
+# -c:v copy is deliberate: download_media.sh / run_fake_cams.sh already normalise
+# every clip to 640x360 h264 with a keyframe every 2 s, so re-encoding here would
+# only burn the CPU that YOLO needs.
+
+logLevel: info
+logDestinations: [stdout]
+readTimeout: 10s
+writeTimeout: 10s
+
+api: true
+apiAddress: 127.0.0.1:9997
+
+rtsp: true
+rtspTransports: [tcp, udp]
+rtspAddress: :8554
+
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+
+pathDefaults:
+  runOnInitRestart: true
+
+paths:
+  cam1:
+    runOnInit: >
+      bash -c 'while [ -f .down/$MTX_PATH ]; do sleep 1; done;
+      exec ffmpeg -hide_banner -loglevel error -re -stream_loop -1
+      -i ./media/$MTX_PATH.mp4 -c:v copy -an
+      -f rtsp -rtsp_transport tcp rtsp://localhost:$RTSP_PORT/$MTX_PATH'
+  cam2:
+    runOnInit: >
+      bash -c 'while [ -f .down/$MTX_PATH ]; do sleep 1; done;
+      exec ffmpeg -hide_banner -loglevel error -re -stream_loop -1
+      -i ./media/$MTX_PATH.mp4 -c:v copy -an
+      -f rtsp -rtsp_transport tcp rtsp://localhost:$RTSP_PORT/$MTX_PATH'
+  cam3:
+    runOnInit: >
+      bash -c 'while [ -f .down/$MTX_PATH ]; do sleep 1; done;
+      exec ffmpeg -hide_banner -loglevel error -re -stream_loop -1
+      -i ./media/$MTX_PATH.mp4 -c:v copy -an
+      -f rtsp -rtsp_transport tcp rtsp://localhost:$RTSP_PORT/$MTX_PATH'
+  cam4:
+    runOnInit: >
+      bash -c 'while [ -f .down/$MTX_PATH ]; do sleep 1; done;
+      exec ffmpeg -hide_banner -loglevel error -re -stream_loop -1
+      -i ./media/$MTX_PATH.mp4 -c:v copy -an
+      -f rtsp -rtsp_transport tcp rtsp://localhost:$RTSP_PORT/$MTX_PATH'
+  cam5:
+    runOnInit: >
+      bash -c 'while [ -f .down/$MTX_PATH ]; do sleep 1; done;
+      exec ffmpeg -hide_banner -loglevel error -re -stream_loop -1
+      -i ./media/$MTX_PATH.mp4 -c:v copy -an
+      -f rtsp -rtsp_transport tcp rtsp://localhost:$RTSP_PORT/$MTX_PATH'
+
+  # A live phone camera (IP Webcam / Larix) can publish straight to
+  # rtsp://<laptop-ip>:8554/phone - this path accepts any publisher.
+  phone:

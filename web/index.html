@@ -1,0 +1,1120 @@
+<!--
+  Prahari dashboard.
+
+  Deliberately one file with no build step and no external requests: the demo
+  has to work on a laptop with the wifi switched off. Fonts are system stacks
+  for the same reason.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prahari</title>
+
+<style>
+/* Prahari — dark, neutral, Apple-system grammar.
+   Surfaces carry structure, not borders. Colour means something or is absent.
+   Type does the hierarchy. Everything sits on an 8pt grid. */
+
+:root {
+  --bg:         #000000;
+  --card:       #1c1c1e;
+  --card-2:     #2c2c2e;
+  --card-3:     #3a3a3c;
+  --sep:        rgba(255,255,255,.09);
+  --sep-strong: rgba(255,255,255,.16);
+
+  --label:      #ffffff;
+  --label-2:    rgba(235,235,245,.62);
+  --label-3:    rgba(235,235,245,.32);
+
+  --blue:       #0a84ff;
+  --green:      #30d158;
+  --orange:     #ff9f0a;
+  --red:        #ff453a;
+  --teal:       #64d2ff;
+
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+
+  --r-lg: 14px;
+  --r-md: 10px;
+  --r-sm: 6px;
+  --gutter: 24px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--label);
+  font-family: var(--sans); font-size: 15px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased; display: flex; flex-direction: column;
+  overflow: hidden;
+}
+h2, h3, h4 { margin: 0; }
+button { font-family: inherit; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 4px; }
+
+/* ---------------- chrome ---------------- */
+header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 var(--gutter); height: 52px; flex: none;
+  background: rgba(28,28,30,.72); backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--sep);
+}
+.wordmark { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.wordmark span { color: var(--blue); }
+.store { font-size: 13px; color: var(--label-3); }
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+.conn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--label-2); }
+.conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.conn.bad .dot, .conn.off .dot { background: var(--red); }
+.link { color: var(--label-2); text-decoration: none; font-size: 13px; }
+.link:hover { color: var(--label); }
+#clock { font-family: var(--mono); font-size: 13px; color: var(--label-3);
+         font-variant-numeric: tabular-nums; }
+
+.mode-btn {
+  background: var(--card-2); border: 0; color: var(--label); cursor: pointer;
+  border-radius: 980px; padding: 5px 14px; font-size: 13px; font-weight: 500;
+}
+.mode-btn:hover { background: var(--card-3); }
+
+/* ---------------- now banner ---------------- */
+#state {
+  display: flex; align-items: baseline; gap: 10px; flex: none;
+  padding: 12px var(--gutter); background: var(--card);
+  border-bottom: 1px solid var(--sep);
+}
+#state-text { font-size: 15px; font-weight: 500; }
+#state .where { font-size: 13px; color: var(--label-3);
+                font-variant-numeric: tabular-nums; }
+#state.quiet #state-text { color: var(--label-2); font-weight: 400; }
+#state.quiet #state-text strong { color: var(--label); font-weight: 600; }
+#state.warning { background: rgba(255,159,10,.10); }
+#state.warning #state-text strong { color: var(--orange); }
+#state.critical { background: rgba(255,69,58,.12); }
+#state.critical #state-text strong { color: var(--red); }
+
+/* ---------------- owner view ---------------- */
+body.owner .main, body.owner .kpis { display: none; }
+body:not(.owner) .owner-view { display: none; }
+.owner-view { flex: 1; overflow-y: auto; padding: var(--gutter); min-height: 0; }
+
+.hero { display: grid; grid-template-columns: minmax(0,2.15fr) minmax(260px,.85fr);
+        gap: 20px; margin-bottom: 32px; align-items: start; }
+@media (max-width: 1080px) { .hero { grid-template-columns: 1fr; } }
+
+.hero-card { background: var(--card); border-radius: var(--r-lg); overflow: hidden; }
+.hero-pick { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--sep); }
+.hero-pick button {
+  background: none; border: 0; color: var(--label-2); cursor: pointer;
+  padding: 8px 12px 10px; font-size: 13px; font-weight: 500;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap;
+}
+.hero-pick button:hover { color: var(--label); }
+.hero-pick button.on { color: var(--label); border-bottom-color: var(--blue); }
+.hero-pick button.dead { color: var(--red); }
+
+.hero-view { position: relative; background: #000; }
+.hero-view img { width: 100%; display: block; }
+.hero-tag {
+  position: absolute; left: 12px; bottom: 12px; display: flex; gap: 7px; align-items: center;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(12px); padding: 5px 11px;
+  border-radius: 980px; font-size: 12px; font-weight: 500;
+}
+.hero-tag .live { width: 7px; height: 7px; border-radius: 50%; background: var(--red);
+                  animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+
+.timeline { padding: 14px 16px 16px; border-top: 1px solid var(--sep); }
+.tl-track { position: relative; height: 36px; background: var(--card-2);
+            border-radius: var(--r-sm); overflow: hidden; }
+.tl-mark { position: absolute; top: 7px; width: 3px; height: 22px; border-radius: 2px; }
+.tl-mark.CRITICAL { background: var(--red); }
+.tl-mark.WARNING { background: var(--orange); }
+.tl-mark.INFO { background: var(--label-3); height: 9px; top: 20px; }
+.tl-axis { display: flex; justify-content: space-between; margin-top: 8px;
+           font-size: 11px; color: var(--label-3); font-variant-numeric: tabular-nums; }
+
+/* live zone occupancy */
+.zonebars { background: var(--card); border-radius: var(--r-lg); padding: 18px 20px 20px; }
+.zonebars h4 { font-size: 13px; font-weight: 600; color: var(--label); margin-bottom: 16px; }
+.zrow { margin-bottom: 14px; }
+.zrow .lab { display: flex; justify-content: space-between; align-items: baseline;
+             font-size: 13px; color: var(--label-2); margin-bottom: 7px; }
+.zrow .lab b { font-family: var(--mono); font-size: 15px; color: var(--label);
+               font-weight: 500; font-variant-numeric: tabular-nums; }
+.zrow .bar { height: 6px; background: var(--card-2); border-radius: 3px; overflow: hidden; }
+.zrow .fill { height: 100%; background: var(--blue); border-radius: 3px;
+              transition: width .4s cubic-bezier(.4,0,.2,1); }
+.zrow.hot .fill { background: var(--red); }
+.zrow.empty .lab b { color: var(--label-3); }
+.zsplit { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--sep); }
+.zfacts { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 12px; }
+.zfact .n { font-family: var(--mono); font-size: 22px; font-weight: 500;
+            letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.zfact .k { font-size: 12px; color: var(--label-3); margin-top: 3px; }
+
+/* the shop's numbers */
+.headline { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px,1fr));
+            gap: 12px; margin-bottom: 32px; }
+.big { background: var(--card); border-radius: var(--r-lg); padding: 18px 20px 20px; }
+.big .n { font-family: var(--mono); font-size: 34px; font-weight: 500; line-height: 1.1;
+          letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.big .k { font-size: 14px; font-weight: 500; margin-top: 10px; }
+.big .sub { font-size: 12px; color: var(--label-3); margin-top: 2px; }
+.big.cost .n { color: var(--red); }
+.big.good .n { color: var(--green); }
+
+.owner-sec { margin-bottom: 32px; }
+.owner-sec h3 { font-size: 13px; font-weight: 600; color: var(--label-2); margin-bottom: 12px; }
+
+/* plain-language alerts */
+.plain { display: flex; flex-direction: column; gap: 10px; }
+.plain .row { display: flex; gap: 16px; align-items: flex-start;
+              background: var(--card); border-radius: var(--r-lg); padding: 16px 18px; }
+.plain .row.crit { box-shadow: inset 3px 0 0 var(--red); }
+.plain .row.warn { box-shadow: inset 3px 0 0 var(--orange); }
+.plain .row .when { font-family: var(--mono); font-size: 13px; color: var(--label-2);
+                    min-width: 78px; font-variant-numeric: tabular-nums; }
+.plain .row .what { font-size: 15px; line-height: 1.4; }
+.plain .row .what small { display: block; color: var(--label-3); font-size: 12px; margin-top: 4px; }
+.plain .row .shot { width: 132px; border-radius: var(--r-md); margin-left: auto; cursor: pointer; }
+.plain .none { padding: 20px; background: var(--card); border-radius: var(--r-lg);
+               color: var(--label-3); font-size: 14px; }
+.ago { font-size: 12px; color: var(--label-3); font-variant-numeric: tabular-nums; }
+
+/* the machine reporting on itself */
+.rack { background: var(--card); border-radius: var(--r-lg); overflow: hidden; }
+.rack-wrap { overflow-x: auto; }
+.rack table { width: 100%; border-collapse: collapse; }
+.rack th { text-align: right; padding: 14px 16px 10px; font-size: 12px; font-weight: 500;
+           color: var(--label-3); border-bottom: 1px solid var(--sep); white-space: nowrap; }
+.rack th:first-child, .rack td:first-child { text-align: left; }
+.rack td { text-align: right; padding: 12px 16px; border-bottom: 1px solid var(--sep);
+           font-family: var(--mono); font-size: 14px; color: var(--label);
+           font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rack tr:last-child td { border-bottom: 0; }
+.rack .cam { font-family: var(--sans); font-size: 14px; font-weight: 500; }
+.rack .down { color: var(--red); font-family: var(--sans); }
+.rack .idle { color: var(--label-3); }
+.rack .unit { color: var(--label-3); font-size: 12px; margin-left: 1px; }
+.rack .link { display: inline-flex; align-items: center; gap: 7px; font-family: var(--sans);
+              font-size: 13px; color: var(--label-2); }
+.rack .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.rack .pip.off { background: var(--red); }
+.rack-foot { display: flex; flex-wrap: wrap; gap: 24px; padding: 14px 16px;
+             border-top: 1px solid var(--sep); font-size: 13px; color: var(--label-3); }
+.rack-foot b { font-family: var(--mono); font-weight: 500; color: var(--label);
+               font-variant-numeric: tabular-nums; }
+.rack-note { padding: 0 16px 16px; font-size: 12px; color: var(--label-3); line-height: 1.5; }
+
+/* ---------------- security view ---------------- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr));
+        border-bottom: 1px solid var(--sep); flex: none; background: var(--card); }
+.kpi { padding: 14px var(--gutter); border-right: 1px solid var(--sep); }
+.kpi:last-child { border-right: 0; }
+.kpi .n { font-family: var(--mono); font-size: 24px; font-weight: 500;
+          letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.kpi .n.zero { color: var(--label-3); }
+.kpi .k { font-size: 12px; color: var(--label-3); margin-top: 4px; }
+
+.main { display: grid; grid-template-columns: minmax(0,1fr) 380px; flex: 1; min-height: 0; }
+.cams { padding: var(--gutter); overflow-y: auto; min-height: 0; }
+.cams-head, .ledger-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.cams-head h2, .ledger-head h2 { font-size: 13px; font-weight: 600; color: var(--label-2); }
+.rule-line { flex: 1; height: 1px; background: var(--sep); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); gap: 16px; }
+
+.cam { background: var(--card); border-radius: var(--r-lg); overflow: hidden;
+       transition: box-shadow .25s ease; }
+.cam.alert-critical { box-shadow: 0 0 0 2px var(--red); }
+.cam.alert-warning { box-shadow: 0 0 0 2px var(--orange); }
+.cam.offline { opacity: .5; }
+.cam.drawing { box-shadow: 0 0 0 2px var(--blue); }
+.cam-view { position: relative; aspect-ratio: 16/9; background: #000; }
+.cam-view img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cam-view canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cam.drawing .cam-view { cursor: crosshair; }
+.placeholder { position: absolute; inset: 0; display: grid; place-content: center;
+               color: var(--label-3); font-size: 13px; }
+.cam-bar { display: flex; align-items: center; gap: 10px; padding: 11px 14px; }
+.cam-bar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--card-3); }
+.cam-bar .dot.on { background: var(--green); }
+.cam-bar .dot.off { background: var(--red); }
+.cam-name { font-size: 14px; font-weight: 500; }
+.cam-meta { font-size: 12px; color: var(--label-3); margin-left: auto;
+            font-variant-numeric: tabular-nums; }
+.zone-btn { background: var(--card-2); border: 0; color: var(--label); cursor: pointer;
+            border-radius: 980px; padding: 4px 12px; font-size: 12px; font-weight: 500; }
+.zone-btn:hover { background: var(--card-3); }
+.zone-btn.active { background: var(--blue); }
+.draw-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            padding: 11px 14px; border-top: 1px solid var(--sep); }
+.draw-bar select, .draw-bar button {
+  background: var(--card-2); border: 0; color: var(--label); border-radius: var(--r-sm);
+  padding: 6px 10px; font-size: 13px; cursor: pointer; }
+.draw-bar .hint { font-size: 12px; color: var(--label-3); }
+
+.ledger { border-left: 1px solid var(--sep); padding: var(--gutter); background: var(--card);
+          display: flex; flex-direction: column; min-height: 0; }
+.filters { display: flex; gap: 8px; margin-bottom: 14px; }
+.filters input, .filters select {
+  background: var(--card-2); border: 0; color: var(--label); border-radius: var(--r-md);
+  padding: 8px 12px; font-size: 14px; font-family: inherit; }
+.filters input { flex: 1; min-width: 0; }
+#events { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.entry { display: flex; gap: 12px; background: var(--card-2); border-radius: var(--r-md);
+         padding: 12px 14px; }
+.entry.acked { opacity: .5; }
+.entry .t { font-family: var(--mono); font-size: 12px; color: var(--label-3);
+            font-variant-numeric: tabular-nums; }
+.sev { font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.sev-CRITICAL { color: var(--red); }
+.sev-WARNING { color: var(--orange); }
+.sev-INFO { color: var(--label-3); }
+.over { color: var(--label-3); font-weight: 400; }
+.entry .title { font-size: 14px; margin-top: 3px; }
+.entry .src { font-size: 12px; color: var(--label-3); margin-top: 2px; }
+.entry .shot { width: 100%; border-radius: var(--r-sm); margin-top: 8px; cursor: pointer; }
+.entry .acts { display: flex; gap: 8px; margin-top: 10px; }
+.entry .acts button { background: var(--card-3); border: 0; color: var(--label);
+                      border-radius: 980px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.entry .acts button[disabled] { opacity: .4; cursor: default; }
+.empty { padding: 20px; color: var(--label-3); font-size: 14px; text-align: center; }
+
+/* ---------------- evidence ---------------- */
+dialog { background: var(--card); color: var(--label); border: 0; border-radius: var(--r-lg);
+         padding: 0; max-width: 860px; width: 92vw; }
+dialog::backdrop { background: rgba(0,0,0,.6); backdrop-filter: blur(4px); }
+dialog .head { display: flex; align-items: center; gap: 12px; padding: 16px 18px;
+               border-bottom: 1px solid var(--sep); }
+dialog .title { font-size: 15px; font-weight: 600; }
+dialog .head button { margin-left: auto; background: var(--card-2); border: 0; color: var(--label);
+                      border-radius: 980px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
+dialog video, dialog img { display: block; width: 100%; max-height: 68vh; background: #000; }
+dialog .foot { padding: 12px 18px; font-size: 12px; color: var(--label-3); }
+
+@media (max-width: 980px) {
+  body { height: auto; overflow: visible; }
+  .main { grid-template-columns: 1fr; }
+  .cams { overflow: visible; }
+  .ledger { border-left: 0; border-top: 1px solid var(--sep); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<header>
+  <div class="wordmark">Prahari<span>.</span></div>
+  <div class="store" id="store-name">Jewellery store &middot; POC</div>
+  <div class="header-right">
+    <span class="conn" id="conn"><span class="dot"></span><span id="conn-text">connecting</span></span>
+    <button class="mode-btn" id="mode-btn" type="button">Security view</button>
+    <a class="link" href="/api/docs" target="_blank" rel="noopener">API</a>
+    <span id="clock">--:--:--</span>
+  </div>
+</header>
+
+<div id="state" class="quiet">
+  <span id="state-text">Starting up&hellip;</span>
+  <span class="where" id="state-where"></span>
+</div>
+
+<div class="kpis" id="kpis"></div>
+
+<section class="owner-view">
+  <div class="hero">
+    <div class="hero-card">
+      <div class="hero-pick" id="hero-pick"></div>
+      <div class="hero-view">
+        <img id="hero-img" alt="Live camera view">
+        <div class="hero-tag"><span class="live"></span><span id="hero-label">live</span></div>
+      </div>
+      <div class="timeline">
+        <div class="tl-track" id="tl-track"></div>
+        <div class="tl-axis"><span>10 min ago</span><span>5 min</span><span>now</span></div>
+      </div>
+    </div>
+    <div class="zonebars">
+      <h4>What it can see right now</h4>
+      <div id="zonebars"></div>
+    </div>
+  </div>
+
+  <div class="headline" id="headline"></div>
+
+  <div class="owner-sec">
+    <h3>Needs your attention</h3>
+    <div class="plain" id="owner-alerts"></div>
+  </div>
+
+  <div class="owner-sec">
+    <h3>What this system knows about itself</h3>
+    <div class="rack">
+      <div class="rack-wrap"><table id="rack"></table></div>
+      <div class="rack-foot" id="rack-foot"></div>
+      <div class="rack-note">
+        Frame rate is measured, not configured. Frame age is how stale the
+        newest frame is — under a second means the detector is keeping up.
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="main">
+  <section class="cams">
+    <div class="cams-head">
+      <h2>Cameras</h2><div class="rule-line"></div>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <aside class="ledger">
+    <div class="ledger-head">
+      <h2>Alert log</h2><div class="rule-line"></div>
+    </div>
+    <div class="filters">
+      <input id="q" type="search" placeholder="Search alerts, e.g. counter" autocomplete="off">
+      <select id="sev">
+        <option value="">All</option>
+        <option value="CRITICAL">Critical</option>
+        <option value="WARNING">Warning</option>
+      </select>
+    </div>
+    <div id="events"><div class="empty">Loading&hellip;</div></div>
+  </aside>
+</div>
+
+<dialog id="viewer">
+  <div class="head">
+    <div class="title" id="v-title">Evidence</div>
+    <button onclick="document.getElementById('viewer').close()">Close</button>
+  </div>
+  <div id="v-body"></div>
+  <div class="foot" id="v-foot"></div>
+</dialog>
+
+<script>
+"use strict";
+
+// Video arrives as MJPEG on a persistent connection, so the only polling left
+// is the small JSON call that keeps the per-camera people counts current.
+const CAM_POLL_MS = 4000;
+
+// ?still=1 swaps the MJPEG streams for periodically refreshed stills. An MJPEG
+// response never completes, so the page never finishes loading and screenshot
+// tooling cannot attach to it. Same pixels, same layout, capturable.
+const STILL = new URLSearchParams(location.search).has("still");
+function camSrc(camId) {
+  const id = encodeURIComponent(camId);
+  return STILL ? `/api/cams/${id}/frame.jpg?t=${Date.now()}`
+               : `/api/cams/${id}/stream.mjpg`;
+}
+const state = {
+  cams: [],
+  events: [],
+  kpi: {},
+  alerts: new Map(),        // cam_id -> worst live severity
+  drawing: null,            // cam_id currently being drawn on
+  points: [],
+  lastAlertTs: null,
+  startedAt: Date.now(),
+};
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const hhmmss = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
+
+/* ---------------- websocket ---------------- */
+let ws = null, wsRetry = 1000;
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    wsRetry = 1000;
+    setConn("live", "live");
+  };
+  ws.onclose = () => {
+    setConn("down", "reconnecting");
+    setTimeout(connect, wsRetry);
+    wsRetry = Math.min(wsRetry * 2, 15000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (m) => {
+    let msg;
+    try { msg = JSON.parse(m.data); } catch { return; }
+    if (msg.type === "kpi") { state.kpi = msg.kpi; renderKpis(); renderState(); renderOwner(); renderZoneBars(); }
+    else if (msg.type === "cams") { state.cams = msg.cams; renderCams(); }
+    else if (msg.type === "live") { onLive(msg); }
+    else if (msg.type === "cam_status") { onCamStatus(msg); }
+    else if (msg.type === "event") { onEvent(msg.event); }
+    else if (msg.type === "ack") { markAcked(msg.event_id); }
+    else if (msg.type === "clip") { onClipReady(msg.event_id); }
+  };
+}
+
+function setConn(cls, text) {
+  $("conn").className = "conn " + cls;
+  $("conn-text").textContent = text;
+}
+
+/* ---------------- state sentence ---------------- */
+// How recent an alert has to be to count as "happening now". Transient alerts
+// - a walk-away, a line crossing - are never resolved by anything, so without
+// a window the banner latches onto the first one forever and shouts about a
+// customer who left twenty minutes ago.
+const NOW_WINDOW_S = 90;
+
+function renderState() {
+  const el = $("state"), text = $("state-text"), where = $("state-where");
+  const now = Date.now() / 1000;
+  const live = state.events.filter(
+    (e) => e.status !== "ack" && !e.resolved && e.severity !== "INFO"
+           && now - e.ts <= NOW_WINDOW_S);
+  const worst = live.find((e) => e.severity === "CRITICAL") || live[0];
+
+  if (worst) {
+    el.className = worst.severity === "CRITICAL" ? "critical" : "warning";
+    text.innerHTML = `<strong>${esc(worst.title)}</strong>`;
+    const others = live.length > 1 ? ` · and ${live.length - 1} other${live.length > 2 ? "s" : ""}` : "";
+    where.textContent = `${worst.cam_name || worst.cam_id} · ${humanGap(now - worst.ts)} ago${others}`;
+    return;
+  }
+
+  el.className = "quiet";
+  const n = state.kpi.cameras_online ?? 0;
+  const total = state.kpi.cameras_total ?? state.cams.length;
+  text.innerHTML = n === 0 && total > 0
+    ? `<strong>No cameras are reporting.</strong>`
+    : `<strong>All quiet.</strong> ${n} of ${total} camera${total === 1 ? "" : "s"} watching.`;
+  const since = state.lastAlertTs
+    ? `quiet for ${humanGap(Date.now() / 1000 - state.lastAlertTs)}`
+    : `up for ${humanGap((Date.now() - state.startedAt) / 1000)}`;
+  where.textContent = since;
+}
+
+function humanGap(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)} min`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+/* ---------------- kpis ---------------- */
+function renderKpis() {
+  const k = state.kpi;
+  const cells = [
+    ["Alerts today", k.alerts_today],
+    ["Needs review", k.pending],
+    ["People in view", k.people_now],
+    ["Entries today", k.footfall_today],
+    ["Cameras", `${k.cameras_online ?? 0}/${k.cameras_total ?? 0}`],
+    ["Detector", k.infer_ms ? `${Math.round(k.infer_ms)} ms` : "—"],
+  ];
+  $("kpis").innerHTML = cells.map(([label, value]) => {
+    const zero = value === 0 || value === "0" ? " zero" : "";
+    return `<div class="kpi"><div class="n${zero}">${esc(value ?? "—")}</div>
+            <div class="k">${esc(label)}</div></div>`;
+  }).join("");
+}
+
+/* ---------------- owner view ----------------
+   Same event stream, different audience. The security view is for whoever
+   watches the screen; this is for whoever signs the cheque, so nothing here
+   names a rule, a zone or a track id. */
+
+// Rule names are engineering vocabulary. An owner reads the sentence.
+const PLAIN = {
+  service: "A customer was left waiting at the counter and walked out.",
+  zone_breach: "A customer was at the display case with no staff nearby.",
+  restricted: "Somebody entered an area they should not be in.",
+  loitering: "Somebody stayed in the doorway far longer than a customer would.",
+  after_hours: "Somebody was in the shop while it was closed.",
+  camera_health: "A camera stopped working. A dead camera looks exactly like a quiet shop.",
+};
+
+function ownerMode() { return document.body.classList.contains("owner"); }
+
+function setMode(owner) {
+  document.body.classList.toggle("owner", owner);
+  $("mode-btn").textContent = owner ? "Security view" : "Owner view";
+  try { localStorage.setItem("prahari.owner", owner ? "1" : "0"); } catch {}
+  if (owner) renderOwner();
+}
+
+function renderOwner() {
+  if (!ownerMode()) return;
+  renderHeroPicker();
+  renderZoneBars();
+  renderTimeline();
+  renderHeadline();
+  renderOwnerAlerts();
+  renderAudit();
+}
+
+/* ---- hero: one big live view, chosen by the presenter ---- */
+function renderHeroPicker() {
+  const box = $("hero-pick");
+  if (!state.cams.length) return;
+  if (!state.hero || !state.cams.some((c) => c.id === state.hero)) {
+    // Default to the camera with zones drawn on it - that is the one where
+    // there is something to see beyond people walking about.
+    const withZones = state.cams.find((c) => c.online && Object.keys(c.zones || {}).length);
+    state.hero = (withZones || state.cams[0]).id;
+    setHero(state.hero);
+  }
+  box.innerHTML = state.cams.map((c) => `
+    <button data-hero="${esc(c.id)}"
+            class="${c.id === state.hero ? "on" : ""} ${c.online ? "" : "dead"}">
+      ${esc(c.name)}</button>`).join("");
+}
+
+function setHero(camId) {
+  state.hero = camId;
+  const img = $("hero-img");
+  const next = camSrc(camId);
+  // Only reassign when it actually changes: setting src re-opens the stream.
+  if (STILL || !img.src.endsWith(next)) img.src = next;
+  const cam = state.cams.find((c) => c.id === camId);
+  $("hero-label").textContent = cam ? cam.name : camId;
+  renderHeroPicker();
+  renderZoneBars();
+}
+
+/* ---- zone occupancy, straight off the detector ---- */
+const ZONE_LABEL = {
+  counter_customer: "At the display case",
+  counter_staff: "Staff behind the counter",
+  staff_only: "Staff-only area",
+  entrance: "Entrance area",
+  restricted: "Restricted area",
+};
+
+function renderZoneBars() {
+  const cam = state.cams.find((c) => c.id === state.hero);
+  const box = $("zonebars");
+  if (!cam) { box.innerHTML = ""; return; }
+  const counts = cam.zone_counts || {};
+  const names = Object.keys(cam.zones || {}).filter((n) => (cam.zones[n] || []).length > 2);
+
+  const rows = names.map((n) => {
+    const c = counts[n] || 0;
+    // Four people in one zone is a full bar; past that it is simply busy.
+    const pct = Math.min(100, c * 25);
+    const hot = n === "restricted" || n === "staff_only" ? c > 0 : c >= 3;
+    return `<div class="zrow ${c ? (hot ? "hot" : "") : "empty"}">
+      <div class="lab"><span>${esc(ZONE_LABEL[n] || n)}</span><b>${c}</b></div>
+      <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
+    </div>`;
+  });
+
+  rows.push(`<div class="zrow">
+      <div class="lab"><span>People in this view</span><b>${cam.people ?? 0}</b></div>
+      <div class="bar"><div class="fill" style="width:${Math.min(100, (cam.people || 0) * 12)}%"></div></div>
+    </div>`);
+
+  if (!names.length) {
+    rows.unshift(`<div class="ago" style="margin-bottom:12px">
+      No areas marked on this camera yet — press <b>Zones</b> in the security
+      view and draw one. It starts watching immediately.</div>`);
+  }
+
+  // The shop as a whole, under the per-zone bars. Without this the panel is
+  // mostly empty air on a camera with one zone, which reads as unfinished.
+  const k = state.kpi;
+  const facts = [
+    [k.footfall_today ?? 0, "customers today"],
+    [k.people_now ?? 0, "in the shop now"],
+    [k.avg_greet_s == null ? "—" : Math.round(k.avg_greet_s) + "s", "avg wait to be served"],
+    [`${k.cameras_online ?? 0}/${k.cameras_total ?? 0}`, "cameras working"],
+  ];
+  rows.push(`<div class="zsplit"><div class="zfacts">` + facts.map(
+    ([n, kk]) => `<div class="zfact"><div class="n">${esc(n)}</div><div class="k">${esc(kk)}</div></div>`
+  ).join("") + `</div></div>`);
+
+  box.innerHTML = rows.join("");
+}
+
+/* ---- the last ten minutes, as a strip ---- */
+function renderTimeline() {
+  const now = Date.now() / 1000;
+  const span = 600;
+  const marks = (state.events || [])
+    .filter((e) => now - e.ts <= span)
+    .map((e) => {
+      const pct = Math.max(0, Math.min(100, ((span - (now - e.ts)) / span) * 100));
+      return `<div class="tl-mark ${esc(e.severity)}" style="left:${pct}%"
+                   title="${esc(e.title)}"></div>`;
+    });
+  $("tl-track").innerHTML = marks.join("") ||
+    `<div class="ago" style="padding:13px 12px">Nothing yet in the last ten minutes.</div>`;
+}
+
+function renderHeadline() {
+  const k = state.kpi;
+  const greet = k.avg_greet_s == null ? null : Math.round(k.avg_greet_s);
+  const walked = k.walkaways_today ?? 0;
+  const cells = [
+    { n: k.footfall_today ?? 0, k: "Customers today", sub: "counted crossing the door" },
+    { n: k.occupancy ?? 0, k: "In the shop now", sub: "entries minus exits" },
+    {
+      n: greet == null ? "—" : greet + "s",
+      k: "Average wait to be served",
+      sub: greet == null ? "no counter visits yet today" : "from arriving at the counter",
+      cls: greet != null && greet <= (k.greet_target_s ?? 60) ? "good" : "",
+    },
+    {
+      n: walked,
+      k: "Left without being served",
+      sub: walked ? "each one has a clip" : "none so far today",
+      cls: walked > 0 ? "cost" : "good",
+    },
+    { n: k.critical_today ?? 0, k: "Security alerts", sub: "needing a look" },
+  ];
+  $("headline").innerHTML = cells.map((c) => `
+    <div class="big ${c.cls || ""}">
+      <div class="n">${esc(c.n)}</div>
+      <div class="k">${esc(c.k)}</div>
+      <div class="sub">${esc(c.sub)}</div>
+    </div>`).join("");
+}
+
+function renderOwnerAlerts() {
+  const box = $("owner-alerts");
+  // Three at most. An owner who is shown twenty things looks at none of them.
+  const live = (state.events || [])
+    .filter((e) => e.severity !== "INFO" && e.kind !== "resolved");
+  // A repeating condition is one situation, not five incidents. Collapsing
+  // them stops a looping demo clip reading as a canned list.
+  const seen = new Map();
+  for (const e of live) {
+    const key = `${e.rule}:${e.cam_id}`;
+    if (seen.has(key)) { seen.get(key).count++; continue; }
+    seen.set(key, { ...e, count: 1 });
+  }
+  const rows = [...seen.values()].slice(0, 3);
+  if (!rows.length) {
+    box.innerHTML = `<div class="none">Nothing needs you right now.</div>`;
+    return;
+  }
+  box.innerHTML = rows.map((e) => `
+    <div class="row ${e.severity === "CRITICAL" ? "crit" : "warn"}">
+      <div class="when">${hhmmss(e.ts)}<div class="ago">${humanGap(Date.now() / 1000 - e.ts)} ago</div></div>
+      <div class="what">${esc(PLAIN[e.rule] || e.title)}
+        <small>${esc(e.cam_name || e.cam_id)}${e.resolved ? " · over" : ""}${
+          e.count > 1 ? ` · <b>${e.count}&times; today</b>` : ""}</small>
+      </div>
+      ${e.snapshot ? `<img class="shot" loading="lazy"
+         src="/snapshots/${esc(e.id)}.jpg" alt="Snapshot when the alert fired"
+         onclick="${e.clip ? `showClip` : `showShot`}('${esc(e.id)}')">` : ""}
+    </div>`).join("");
+}
+
+function renderAudit() {
+  const k = state.kpi;
+  const head = ["Camera", "Link", "Frame rate", "Inference", "Frame age", "In view", "Areas"];
+  const rows = state.cams.map((c) => {
+    if (!c.online) {
+      return `<tr>
+        <td class="cam">${esc(c.name)}</td>
+        <td><span class="link"><span class="pip off"></span>down</span></td>
+        <td class="down" colspan="5">no frames arriving</td></tr>`;
+    }
+    const zones = Object.keys(c.zones || {}).length;
+    const age = c.last_frame_age_s;
+    return `<tr>
+      <td class="cam">${esc(c.name)}</td>
+      <td><span class="link"><span class="pip"></span>up</span></td>
+      <td>${(c.fps ?? 0).toFixed(1)}<span class="unit">/s</span></td>
+      <td>${Math.round(c.infer_ms ?? 0)}<span class="unit">ms</span></td>
+      <td>${age == null ? "—" : age.toFixed(1) + "s"}</td>
+      <td class="${c.people ? "" : "idle"}">${c.people ?? 0}</td>
+      <td class="${zones ? "" : "idle"}">${zones || "none"}</td>
+    </tr>`;
+  });
+  $("rack").innerHTML =
+    `<thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead>` +
+    `<tbody>${rows.join("")}</tbody>`;
+
+  // How much of each second the detector is spending. The number a engineer
+  // asks for and nobody volunteers.
+  const load = state.cams.reduce((a, c) => a + (c.infer_ms || 0) * (c.fps || 0), 0) / 1000;
+  // Entries minus exits should equal what the cameras can see. Publishing the
+  // gap is the point: a system that reports its own error is worth more than
+  // one that claims not to have any.
+  const drift = (k.footfall_today ?? 0) - (k.exits_today ?? 0) - (k.people_now ?? 0);
+  $("rack-foot").innerHTML = [
+    `detector load <b>${Math.round(load * 100)}%</b> of every second`,
+    `model <b>${esc(k.model || "yolo11s")}</b> on <b>${esc(k.device || "mps")}</b>`,
+    `uptime <b>${humanGap(k.uptime_s ?? 0)}</b>`,
+    `counting drift <b>${drift >= 0 ? "+" : ""}${drift}</b>`,
+  ].join("");
+}
+
+
+/* ---------------- cameras ---------------- */
+async function loadCams() {
+  const res = await fetch("/api/cams");
+  state.cams = await res.json();
+  renderCams();
+}
+
+// Tiles are built once and then updated in place. Rebuilding the markup would
+// tear down and re-open every MJPEG stream on each status change.
+function renderCams() {
+  const grid = $("grid");
+  if (!state.cams.length) {
+    grid.innerHTML = `<div class="empty">No cameras configured.</div>`;
+    return;
+  }
+  for (const c of state.cams) {
+    if (!$("cam-" + c.id)) grid.insertAdjacentHTML("beforeend", camMarkup(c));
+    updateCam(c);
+  }
+  if (ownerMode()) renderHeroPicker();
+}
+
+function camMarkup(c) {
+  return `
+  <div class="cam" id="cam-${esc(c.id)}" data-cam="${esc(c.id)}">
+    <div class="cam-view">
+      <img id="img-${esc(c.id)}" alt="${esc(c.name)} live view"
+           src="${camSrc(c.id)}"
+           onload="document.getElementById('ph-${esc(c.id)}').hidden = true">
+      <div class="placeholder" id="ph-${esc(c.id)}">connecting&hellip;</div>
+      <canvas id="cv-${esc(c.id)}" hidden></canvas>
+    </div>
+    <div class="cam-bar">
+      <span class="dot" id="dot-${esc(c.id)}"></span>
+      <span class="cam-name">${esc(c.name)}</span>
+      <span class="cam-meta" id="meta-${esc(c.id)}"></span>
+      <button class="zone-btn" data-zone="${esc(c.id)}">Zones</button>
+    </div>
+    <div class="draw-bar" id="draw-${esc(c.id)}" hidden>
+      <select id="zsel-${esc(c.id)}"></select>
+      <span class="hint">Click the picture to place corners.</span>
+      <button data-undo="${esc(c.id)}">Undo</button>
+      <button data-clear="${esc(c.id)}">Clear</button>
+      <button data-save="${esc(c.id)}">Save zone</button>
+    </div>
+  </div>`;
+}
+
+function updateCam(c) {
+  const card = $("cam-" + c.id);
+  if (!card) return;
+  const alert = state.alerts.get(c.id);
+  card.classList.toggle("offline", !c.online);
+  card.classList.toggle("alert-critical", alert === "CRITICAL");
+  card.classList.toggle("alert-warning", alert === "WARNING");
+  $("dot-" + c.id).className = "dot " + (c.online ? "on" : "off");
+  $("meta-" + c.id).textContent = c.online ? `${c.people ?? 0} in view` : "offline";
+}
+
+// Counts arriving with the frame they describe, rather than from a poll that
+// lands somewhere between frames.
+function onLive(msg) {
+  const cam = state.cams.find((c) => c.id === msg.cam_id);
+  if (!cam) return;
+  cam.people = msg.people;
+  cam.zone_counts = msg.zone_counts;
+  if (ownerMode() && msg.cam_id === state.hero) renderZoneBars();
+  else if (!ownerMode()) updateCam(cam);
+}
+
+function onCamStatus(msg) {
+  const cam = state.cams.find((c) => c.id === msg.cam_id);
+  if (cam) { cam.online = msg.online; updateCam(cam); }
+}
+
+// Keep the per-camera people counts current without touching the video tiles.
+async function pollCams() {
+  try {
+    const fresh = await (await fetch("/api/cams")).json();
+    const byId = new Map(fresh.map((c) => [c.id, c]));
+    for (const cam of state.cams) {
+      const next = byId.get(cam.id);
+      if (!next) continue;
+      Object.assign(cam, { online: next.online, people: next.people, zones: next.zones });
+      updateCam(cam);
+    }
+  } catch { /* the websocket status banner already covers being offline */ }
+}
+
+/* ---------------- zone drawing ---------------- */
+const ZONE_CHOICES = [
+  ["entrance", "Entrance area — warn if someone lingers"],
+  ["counter_customer", "Counter — customer side"],
+  ["counter_staff", "Counter — staff side"],
+  ["entry_line", "Entry line — count people in and out (2 points)"],
+  ["restricted", "Restricted — nobody allowed at all"],
+  ["staff_only", "Staff only — alert on customers"],
+];
+
+function startDrawing(camId) {
+  if (state.drawing && state.drawing !== camId) stopDrawing(state.drawing);
+  state.drawing = camId;
+  state.points = [];
+  const card = $("cam-" + camId);
+  card.classList.add("drawing");
+  $("draw-" + camId).hidden = false;
+  const sel = $("zsel-" + camId);
+  sel.innerHTML = ZONE_CHOICES.map(([v, label]) => `<option value="${v}">${label}</option>`).join("");
+  const cv = $("cv-" + camId);
+  cv.hidden = false;
+  cv.width = 640; cv.height = 360;
+  drawPoints(camId);
+  document.querySelector(`[data-zone="${CSS.escape(camId)}"]`).classList.add("active");
+}
+
+function stopDrawing(camId) {
+  state.drawing = null;
+  state.points = [];
+  const card = $("cam-" + camId);
+  if (!card) return;
+  card.classList.remove("drawing");
+  $("draw-" + camId).hidden = true;
+  $("cv-" + camId).hidden = true;
+  const btn = document.querySelector(`[data-zone="${CSS.escape(camId)}"]`);
+  if (btn) btn.classList.remove("active");
+}
+
+function drawPoints(camId) {
+  const cv = $("cv-" + camId);
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!state.points.length) return;
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#d4a24c";
+  ctx.fillStyle = "rgba(212,162,76,.22)";
+  ctx.beginPath();
+  state.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  if (state.points.length > 2) { ctx.closePath(); ctx.fill(); }
+  ctx.stroke();
+  ctx.fillStyle = "#f2e9da";
+  for (const [x, y] of state.points) {
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+async function saveZone(camId) {
+  const name = $("zsel-" + camId).value;
+  const need = name === "entry_line" ? 2 : 3;
+  if (state.points.length < need) {
+    alertUser(`A ${name === "entry_line" ? "line needs 2 points" : "zone needs at least 3 corners"}.`);
+    return;
+  }
+  const cam = state.cams.find((c) => c.id === camId);
+  const zones = Object.assign({}, cam.zones || {});
+  zones[name] = state.points.map(([x, y]) => [Math.round(x), Math.round(y)]);
+  const res = await fetch(`/api/cams/${encodeURIComponent(camId)}/zones`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ zones }),
+  });
+  if (!res.ok) {
+    alertUser("Could not save the zone: " + (await res.text()));
+    return;
+  }
+  const out = await res.json().catch(() => ({}));
+  cam.zones = zones;
+  if (out.rules) cam.rules = out.rules;
+  stopDrawing(camId);
+  renderCams();
+  renderOwner();
+  // Say what happened. A silent save leaves you wondering whether a zone that
+  // never fires is broken or simply quiet.
+  const armed = (out.armed || []).length
+    ? ` It switched on: ${out.armed.join(", ")}.`
+    : "";
+  alertUser(`Saved. This camera is now watching that area.${armed}`);
+}
+
+function alertUser(text) {
+  $("v-title").textContent = "Zones";
+  $("v-body").innerHTML = `<div style="padding:16px 14px">${esc(text)}</div>`;
+  $("v-foot").textContent = "";
+  $("viewer").showModal();
+}
+
+/* ---------------- alert ledger ---------------- */
+async function loadEvents() {
+  const q = $("q").value.trim();
+  const sev = $("sev").value;
+  const params = new URLSearchParams({ limit: "80" });
+  if (q) params.set("q", q);
+  if (sev) params.set("severity", sev);
+  const res = await fetch("/api/events?" + params);
+  state.events = await res.json();
+  renderOwner();
+  const last = state.events.find((e) => e.severity !== "INFO");
+  state.lastAlertTs = last ? last.ts : null;
+  renderEvents();
+  renderState();
+  recomputeCamAlerts();
+}
+
+function onEvent(ev) {
+  if (ev.kind === "resolved") {
+    // The condition ended, so stop the banner and the camera glow - but leave
+    // the alert unreviewed. "It sorted itself out" is not the same as "someone
+    // looked at it", and marking it reviewed would hide it from the owner.
+    const open = state.events.find((e) => e.rule === ev.rule && e.cam_id === ev.cam_id
+                                          && !e.resolved && e.kind === "start");
+    if (open) open.resolved = true;
+    recomputeCamAlerts();
+    renderEvents(); renderState(); renderOwner();
+    return;
+  }
+  if (ev.severity === "INFO") return;    // footfall crossings are data, not alerts
+  state.events.unshift(ev);
+  state.events = state.events.slice(0, 120);
+  state.lastAlertTs = ev.ts;
+  recomputeCamAlerts();
+  renderEvents();
+  renderState();
+  renderOwner();
+}
+
+function markAcked(id) {
+  const ev = state.events.find((e) => e.id === id);
+  if (ev) ev.status = "ack";
+  recomputeCamAlerts();
+  renderEvents();
+  renderState();
+  renderOwner();
+}
+
+function onClipReady(id) {
+  const ev = state.events.find((e) => e.id === id);
+  if (ev) { ev.clip = true; renderEvents(); renderOwner(); }
+}
+
+function recomputeCamAlerts() {
+  state.alerts.clear();
+  for (const e of state.events) {
+    if (e.status === "ack" || e.resolved || e.severity === "INFO") continue;
+    const cur = state.alerts.get(e.cam_id);
+    if (cur === "CRITICAL") continue;
+    state.alerts.set(e.cam_id, e.severity);
+  }
+  renderCams();
+}
+
+function renderEvents() {
+  const box = $("events");
+  if (!state.events.length) {
+    box.innerHTML = `<div class="empty">Nothing yet. Alerts appear here the moment a rule fires.</div>`;
+    return;
+  }
+  box.innerHTML = state.events.map((e) => `
+    <div class="entry ${e.status === "ack" ? "acked" : ""}" id="ev-${esc(e.id)}">
+      <div class="t">${hhmmss(e.ts)}</div>
+      <div>
+        <div class="sev sev-${esc(e.severity)}">${esc(e.severity)}${
+          e.resolved ? ` <span class="over">ended</span>` : ""}</div>
+        <div class="title">${esc(e.title)}</div>
+        <div class="src">${esc(e.cam_name || e.cam_id)}</div>
+        ${e.snapshot ? `<img class="shot" loading="lazy"
+             src="/snapshots/${esc(e.id)}.jpg" alt="Snapshot when the alert fired"
+             onclick="showShot('${esc(e.id)}')">` : ""}
+        <div class="acts">
+          ${e.clip ? `<button onclick="showClip('${esc(e.id)}')">Watch clip</button>` : ""}
+          <button onclick="ack('${esc(e.id)}')" ${e.status === "ack" ? "disabled" : ""}>
+            ${e.status === "ack" ? "Reviewed" : "Mark reviewed"}
+          </button>
+        </div>
+      </div>
+    </div>`).join("");
+}
+
+async function ack(id) {
+  await fetch(`/api/events/${encodeURIComponent(id)}/ack`, { method: "POST" });
+  markAcked(id);
+}
+
+function showClip(id) {
+  const ev = state.events.find((e) => e.id === id);
+  $("v-title").textContent = ev ? ev.title : "Clip";
+  $("v-body").innerHTML = `<video controls autoplay playsinline src="/clips/${encodeURIComponent(id)}.mp4"></video>`;
+  $("v-foot").textContent = ev ? `${ev.cam_name || ev.cam_id} · ${hhmmss(ev.ts)} · 5 s before, 10 s after` : "";
+  $("viewer").showModal();
+}
+
+function showShot(id) {
+  const ev = state.events.find((e) => e.id === id);
+  $("v-title").textContent = ev ? ev.title : "Snapshot";
+  $("v-body").innerHTML = `<img src="/snapshots/${encodeURIComponent(id)}.jpg" alt="Alert snapshot">`;
+  $("v-foot").textContent = ev ? `${ev.cam_name || ev.cam_id} · ${hhmmss(ev.ts)}` : "";
+  $("viewer").showModal();
+}
+
+/* ---------------- wiring ---------------- */
+document.addEventListener("click", (e) => {
+  const zoneBtn = e.target.closest("[data-zone]");
+  if (zoneBtn) {
+    const id = zoneBtn.dataset.zone;
+    state.drawing === id ? stopDrawing(id) : startDrawing(id);
+    return;
+  }
+  const hero = e.target.closest("[data-hero]");
+  if (hero) return void setHero(hero.dataset.hero);
+  const save = e.target.closest("[data-save]");
+  if (save) return void saveZone(save.dataset.save);
+  const undo = e.target.closest("[data-undo]");
+  if (undo) { state.points.pop(); drawPoints(undo.dataset.undo); return; }
+  const clear = e.target.closest("[data-clear]");
+  if (clear) { state.points = []; drawPoints(clear.dataset.clear); return; }
+
+  const view = e.target.closest(".cam.drawing .cam-view");
+  if (view) {
+    const rect = view.getBoundingClientRect();
+    // Tiles are object-fit: cover, so map the click back to 640x360 source pixels.
+    const x = ((e.clientX - rect.left) / rect.width) * 640;
+    const y = ((e.clientY - rect.top) / rect.height) * 360;
+    state.points.push([Math.round(x), Math.round(y)]);
+    drawPoints(state.drawing);
+  }
+});
+
+let searchTimer = null;
+$("q").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadEvents, 250);
+});
+$("sev").addEventListener("change", loadEvents);
+
+$("mode-btn").addEventListener("click", () => {
+  const next = !ownerMode();
+  setMode(next);
+});
+
+// Owner view is the default: the first thing anyone sees should be the money,
+// not the machinery. The choice is remembered per browser.
+let startOwner = true;
+try { startOwner = localStorage.getItem("prahari.owner") !== "0"; } catch {}
+setMode(startOwner);
+
+setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString([], { hour12: false }); }, 1000);
+setInterval(pollCams, CAM_POLL_MS);
+if (STILL) setInterval(() => {
+  if (state.hero) $("hero-img").src = camSrc(state.hero);
+  for (const c of state.cams) {
+    const el = $("img-" + c.id);
+    if (el) el.src = camSrc(c.id);
+  }
+}, 1000);
+setInterval(renderState, 5000);
+// The timeline and the "x ago" ages must move on their own, or a quiet minute
+// makes a live dashboard look like a screenshot.
+setInterval(() => {
+  renderState();
+  if (ownerMode()) { renderTimeline(); renderOwnerAlerts(); }
+}, 1000);
+
+loadCams();
+loadEvents();
+connect();
+</script>

@@ -1,0 +1,32 @@
+[project]
+name = "prahari"
+version = "0.1.0"
+description = "Jewellery-store camera intelligence POC: RTSP -> detection -> zone rules -> alerts -> dashboard"
+requires-python = ">=3.11"
+dependencies = [
+    "ultralytics>=8.3.0",
+    # ByteTrack's assignment step. Ultralytics does not declare it and instead
+    # pip-installs it on the first model.track() call - which is a surprise
+    # download five minutes into a client demo. Pin it here instead.
+    "lap>=0.5.12",
+    "opencv-python-headless>=4.10",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pyyaml>=6.0",
+    "imageio-ffmpeg>=0.5",
+    "httpx>=0.27",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["prahari", "prahari.rules"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

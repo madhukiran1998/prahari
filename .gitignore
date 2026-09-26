@@ -1,0 +1,32 @@
+# Runtime output
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Model weights, fetched on first use
+*.pt
+
+# Demo footage and the mediamtx binary: large, and reproducible from
+# sim/download_media.sh + the mediamtx release page
+sim/media/
+sim/mediamtx
+sim/.normalized/
+sim/.down/
+
+# Zones drawn in the dashboard are machine-local
+config/zones.local.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# MediaMTX generates these on first run
+sim/auto.crt
+sim/auto.key
+
+# staged-clip preview frames
+staged_preview_*.jpg

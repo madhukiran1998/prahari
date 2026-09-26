@@ -1,0 +1,82 @@
+# Global tuning for the Prahari POC. Every threshold in the codebase reads from
+# here - if you find a magic number in the Python, it is a bug.
+
+detect_fps: 5           # frames per second actually sent to the detector
+img_width: 640          # frames are resized to this width before inference
+conf_threshold: 0.3     # YOLO person confidence floor. Measured, not guessed:
+                        # against rtdetr-l as a reference on the busy clip,
+                        # 0.40 finds 10 of 13 people and 0.30 finds 12, for
+                        # +0.6 ms. More importantly, yolo11s at 0.40 detects
+                        # the counter camera's display bust firmly enough that
+                        # counter_staff never reads empty and the headline
+                        # zone_breach alert never fires at all.
+model: yolo11n.pt       # Measured on the demo clips against yolo11s, yolo11m,
+                        # yolo26n/s and rtdetr-l. At conf 0.30 the nano model
+                        # finds the same 12 people as the small one for 14%
+                        # less time, so the threshold was doing the work, not
+                        # the weights. rtdetr-l finds 13 - one more - and costs
+                        # 104 ms a frame, which five cameras cannot afford.
+imgsz: 640              # inference resolution; drop to 480 if CPU-bound
+# auto = Apple GPU (mps) or cuda where present, else cpu. Measured on an M-series
+# laptop: 29.8 ms a frame on cpu against 16.7 on mps, which is the difference
+# between five cameras costing 74% of every second and costing 42%.
+device: auto
+# Tracker config from ultralytics. Measured across all four demo clips, OC-SORT
+# holds a track 20-48% longer than ByteTrack for the same time per frame, and is
+# never worse - and how long a track survives is exactly what every dwell timer
+# is counting.
+tracker: ocsort.yaml
+
+store_hours: {open: "08:00", close: "22:00"}   # widened so a demo at any
+                                               # normal hour is not "after hours".
+                                               # Use --force-closed for that beat.
+demo_force_closed: false   # flip to true in a meeting to demo the after-hours rule
+
+thresholds:
+  zone_breach_grace_s: 20  # customer at counter with no staff for this long -> CRITICAL
+  loiter_warn_s: 20        # cumulative dwell in the entrance zone -> WARNING
+  loiter_crit_s: 40        # ... -> CRITICAL
+  loiter_merge_s: 30       # re-attach a new track id to a recent one (ByteTrack churn)
+  loiter_merge_iou: 0.3
+  after_hours_clear_s: 10  # quiet for this long -> after-hours incident is over
+  camera_down_s: 15        # no frames for this long -> camera offline
+  camera_frozen_s: 30      # identical frame for this long -> frozen feed
+  camera_dark_s: 10        # near-black frame for this long (while open) -> blackout
+  camera_dark_luma: 10
+  # Staff are learned, not enrolled: stand in the counter_staff zone this long
+  # and your shirt colour is remembered as a uniform from then on.
+  staff_learn_s: 6
+  staff_match_dist: 42     # hue/saturation distance that still counts as the same uniform
+  # Service quality. A customer at the counter for this long with no staff
+  # beside them, who then leaves, is recorded as a walk-away.
+  unserved_min_s: 20
+  greet_target_s: 60       # the owner's target: greeted inside this many seconds
+
+cooldown_s: 120            # default per (rule, camera) alert cooldown
+rule_cooldown_s:           # overrides
+  after_hours: 300
+  camera_health: 60
+  footfall: 0
+  restricted: 60
+  service: 0               # every walk-away is a separate lost sale
+
+clip: {pre_s: 5, post_s: 10}
+
+# Auto-degrade: if median inference time exceeds this, drop detect_fps to
+# `slow_detect_fps` and log a warning rather than falling behind forever.
+perf: {slow_ms: 80, slow_detect_fps: 3}
+
+whatsapp:
+  enabled: false
+  token: ""              # Meta Cloud API permanent/temporary token
+  phone_id: ""           # WhatsApp Business phone number ID
+  to: "+91XXXXXXXXXX"    # recipient in E.164
+  # Free-form image alerts only work inside a 24h window opened by the
+  # recipient messaging you first. Have the owner send "hi" before the demo.
+
+# "::" binds IPv6 and IPv4 both, so the owner's phone can reach the dashboard
+# over the shop wifi and `localhost` works whichever family the browser picks
+# first. Port 8000 is a common default and was already taken on this machine -
+# change it here if 8008 clashes too.
+server: {host: "::", port: 8008}
+data_dir: data
